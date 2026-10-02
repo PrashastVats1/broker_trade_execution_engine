@@ -1,0 +1,5 @@
+# Demo data only. This is not a live portfolio.
+symbol,exchange,quantity
+INFY,NSE,10
+TCS,NSE,5
+HDFCBANK,NSE,8

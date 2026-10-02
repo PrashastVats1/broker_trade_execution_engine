@@ -9,11 +9,13 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     database_url: str = "sqlite+aiosqlite:///./kalpi.db"
+    auto_create_schema: bool = True
     webhook_url: str | None = None
     allow_live_trading: bool = False
     order_poll_attempts: int = 2
     order_poll_interval_seconds: float = 0.05
     broker_redirect_base_url: str = "http://localhost:8000/api/v1/brokers"
+    cors_origins: str = "http://localhost:5173,http://localhost:8080"
 
     zerodha_api_key: str | None = None
     zerodha_api_secret: SecretStr | None = None

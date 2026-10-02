@@ -8,6 +8,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, SecretStr
 
@@ -16,11 +17,17 @@ from app.brokers import BrokerAdapter, BrokerCredentials, BrokerRegistry, HttpBr
 from app.config import Settings, get_settings
 from app.dhan import DhanAdapter
 from app.domain import (
+    BrokerAuthenticationError,
     BrokerName,
+    BrokerRateLimitError,
+    BrokerUnavailableError,
+    DeliveryAuthorizationRequired,
     ExecutionRequest,
     ExecutionView,
     ExistingHoldingsError,
     IdempotencyConflictError,
+    InstrumentResolutionError,
+    InvalidOrderTransitionError,
     TradeEngineError,
 )
 from app.groww import GrowwAdapter
@@ -120,7 +127,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def]
-        await create_schema(engine)
+        if settings.auto_create_schema:
+            await create_schema(engine)
         yield
         for adapter in real_adapters:
             await adapter.client.aclose()  # type: ignore[attr-defined]
@@ -135,6 +143,15 @@ def create_app(
         ),
         lifespan=lifespan,
     )
+    origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "Idempotency-Key"],
+        )
     app.state.service = service
     app.state.repository = repository
     app.state.registry = registry
@@ -149,6 +166,42 @@ def create_app(
     async def existing_holdings(request: Request, exc: ExistingHoldingsError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"code": exc.code, "detail": str(exc)})
 
+    @app.exception_handler(BrokerAuthenticationError)
+    async def broker_authentication(
+        request: Request, exc: BrokerAuthenticationError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=401, content={"code": exc.code, "detail": str(exc)})
+
+    @app.exception_handler(BrokerRateLimitError)
+    async def broker_rate_limit(
+        request: Request, exc: BrokerRateLimitError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=429, content={"code": exc.code, "detail": str(exc)})
+
+    @app.exception_handler(DeliveryAuthorizationRequired)
+    async def delivery_authorization(
+        request: Request, exc: DeliveryAuthorizationRequired
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"code": exc.code, "detail": str(exc)})
+
+    @app.exception_handler(InstrumentResolutionError)
+    async def instrument_resolution(
+        request: Request, exc: InstrumentResolutionError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"code": exc.code, "detail": str(exc)})
+
+    @app.exception_handler(InvalidOrderTransitionError)
+    async def invalid_order_transition(
+        request: Request, exc: InvalidOrderTransitionError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"code": exc.code, "detail": str(exc)})
+
+    @app.exception_handler(BrokerUnavailableError)
+    async def broker_unavailable(
+        request: Request, exc: BrokerUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"code": exc.code, "detail": str(exc)})
+
     @app.exception_handler(TradeEngineError)
     async def trade_engine_error(request: Request, exc: TradeEngineError) -> JSONResponse:
         return JSONResponse(status_code=502, content={"code": exc.code, "detail": str(exc)})
@@ -159,6 +212,10 @@ def create_app(
 
     @app.get("/ready", tags=["operations"])
     async def ready() -> dict[str, str]:
+        try:
+            await repository.ping()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database is not ready") from exc
         return {"status": "ready"}
 
     @app.get("/api/v1/brokers", tags=["brokers"])

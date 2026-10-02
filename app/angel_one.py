@@ -170,6 +170,7 @@ class AngelOneAdapter(HttpBrokerAdapter):
                 "POST",
                 "/rest/secure/angelbroking/order/v1/placeOrder",
                 json=payload,
+                ambiguous_on_failure=True,
             )
         ).get("data", {})
         broker_id = (

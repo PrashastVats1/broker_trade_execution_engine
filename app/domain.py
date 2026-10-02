@@ -40,6 +40,7 @@ class OrderStatus(StrEnum):
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
     UNKNOWN = "UNKNOWN"
+    SKIPPED = "SKIPPED"
 
 
 class ExecutionStatus(StrEnum):
@@ -51,11 +52,66 @@ class ExecutionStatus(StrEnum):
     RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
-TERMINAL_ORDER_STATUSES = {
-    OrderStatus.EXECUTED,
-    OrderStatus.REJECTED,
-    OrderStatus.FAILED,
-    OrderStatus.CANCELLED,
+ORDER_STATUS_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
+    OrderStatus.PENDING: frozenset(
+        {OrderStatus.SUBMITTING, OrderStatus.FAILED, OrderStatus.SKIPPED}
+    ),
+    OrderStatus.SUBMITTING: frozenset(
+        {
+            OrderStatus.SUBMITTED,
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.EXECUTED,
+            OrderStatus.REJECTED,
+            OrderStatus.FAILED,
+            OrderStatus.CANCELLED,
+            OrderStatus.UNKNOWN,
+        }
+    ),
+    OrderStatus.SUBMITTED: frozenset(
+        {
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.EXECUTED,
+            OrderStatus.REJECTED,
+            OrderStatus.CANCELLED,
+            OrderStatus.UNKNOWN,
+        }
+    ),
+    OrderStatus.OPEN: frozenset(
+        {
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.EXECUTED,
+            OrderStatus.REJECTED,
+            OrderStatus.CANCELLED,
+            OrderStatus.UNKNOWN,
+        }
+    ),
+    OrderStatus.PARTIALLY_FILLED: frozenset(
+        {
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.EXECUTED,
+            OrderStatus.CANCELLED,
+            OrderStatus.UNKNOWN,
+        }
+    ),
+    OrderStatus.UNKNOWN: frozenset(
+        {
+            OrderStatus.UNKNOWN,
+            OrderStatus.SUBMITTED,
+            OrderStatus.OPEN,
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.EXECUTED,
+            OrderStatus.REJECTED,
+            OrderStatus.CANCELLED,
+        }
+    ),
+    OrderStatus.EXECUTED: frozenset(),
+    OrderStatus.REJECTED: frozenset(),
+    OrderStatus.FAILED: frozenset(),
+    OrderStatus.CANCELLED: frozenset(),
+    OrderStatus.SKIPPED: frozenset(),
 }
 
 
@@ -97,6 +153,19 @@ class IdempotencyConflictError(TradeEngineError):
 
 class ExistingHoldingsError(TradeEngineError):
     code = "existing_holdings"
+
+
+class InvalidOrderTransitionError(TradeEngineError):
+    code = "invalid_order_transition"
+
+
+def validate_order_transition(current: OrderStatus, target: OrderStatus) -> None:
+    if current == target:
+        return
+    if target not in ORDER_STATUS_TRANSITIONS[current]:
+        raise InvalidOrderTransitionError(
+            f"invalid order state transition: {current.value} -> {target.value}"
+        )
 
 
 class InstrumentInput(BaseModel):
@@ -223,6 +292,7 @@ def aggregate_execution_status(statuses: list[OrderStatus]) -> ExecutionStatus:
     if any(
         status
         in {
+            OrderStatus.SUBMITTING,
             OrderStatus.UNKNOWN,
             OrderStatus.SUBMITTED,
             OrderStatus.OPEN,

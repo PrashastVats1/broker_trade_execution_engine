@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
@@ -29,27 +30,20 @@ from app.domain import (
 @dataclass(frozen=True, slots=True)
 class BrokerCredentials:
     api_key: str
-    access_token: str | None = None
-    api_secret: str | None = None
+    access_token: str | None = field(default=None, repr=False)
+    api_secret: str | None = field(default=None, repr=False)
     client_id: str | None = None
     redirect_uri: str | None = None
 
-
-class CredentialStore:
-    def __init__(self) -> None:
-        self._credentials: dict[BrokerName, BrokerCredentials] = {}
-
-    def set(self, broker: BrokerName, credentials: BrokerCredentials) -> None:
-        self._credentials[broker] = credentials
-
-    def get(self, broker: BrokerName) -> BrokerCredentials:
-        try:
-            return self._credentials[broker]
-        except KeyError as exc:
-            raise BrokerAuthenticationError(f"{broker.value} is not connected") from exc
-
-    def connected(self, broker: BrokerName) -> bool:
-        return broker in self._credentials
+    def __repr__(self) -> str:
+        return (
+            "BrokerCredentials("
+            f"api_key={self.api_key!r}, "
+            "access_token=<redacted>, "
+            "api_secret=<redacted>, "
+            f"client_id={self.client_id!r}, "
+            f"redirect_uri={self.redirect_uri!r})"
+        )
 
 
 class BrokerAdapter(ABC):
@@ -116,12 +110,26 @@ class HttpBrokerAdapter(BrokerAdapter):
             "Accept": "application/json",
         }
 
+    @staticmethod
+    def retry_delay(attempt: int, response: httpx.Response | None = None) -> float:
+        base_delay = 0.05 * (2**attempt)
+        jittered: float = base_delay * float(random.uniform(0.8, 1.2))
+        if response is not None:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after is not None:
+                try:
+                    return min(max(float(retry_after), 0.0), 5.0)
+                except ValueError:
+                    pass
+        return jittered
+
     async def request(
         self,
         method: str,
         path: str,
         *,
         safe_to_retry: bool = False,
+        ambiguous_on_failure: bool = False,
         base_url: str | None = None,
         **kwargs: Any,
     ) -> Any:
@@ -140,17 +148,21 @@ class HttpBrokerAdapter(BrokerAdapter):
                     raise OrderStatusUnknownError("broker request timed out") from exc
                 if attempt + 1 == attempts:
                     raise BrokerUnavailableError("broker timed out") from exc
-                await asyncio.sleep(0.05 * (2**attempt))
+                await asyncio.sleep(self.retry_delay(attempt))
                 continue
             except httpx.TransportError as exc:
+                if ambiguous_on_failure:
+                    raise OrderStatusUnknownError(
+                        "broker connection failed after order submission started"
+                    ) from exc
                 if not safe_to_retry or attempt + 1 == attempts:
                     raise BrokerUnavailableError("broker connection failed") from exc
-                await asyncio.sleep(0.05 * (2**attempt))
+                await asyncio.sleep(self.retry_delay(attempt))
                 continue
 
             if response.status_code == 429:
                 if safe_to_retry and attempt + 1 < attempts:
-                    await asyncio.sleep(0.05 * (2**attempt))
+                    await asyncio.sleep(self.retry_delay(attempt, response))
                     continue
                 raise BrokerRateLimitError("broker rate limit exceeded")
             if response.status_code in {401, 403}:
@@ -159,8 +171,12 @@ class HttpBrokerAdapter(BrokerAdapter):
                 raise DeliveryAuthorizationRequired("delivery authorization is required")
             if response.status_code >= 500:
                 if safe_to_retry and attempt + 1 < attempts:
-                    await asyncio.sleep(0.05 * (2**attempt))
+                    await asyncio.sleep(self.retry_delay(attempt))
                     continue
+                if ambiguous_on_failure:
+                    raise OrderStatusUnknownError(
+                        f"broker returned {response.status_code} after submission"
+                    )
                 raise BrokerUnavailableError(f"broker returned {response.status_code}")
             if response.status_code >= 400:
                 message = response.text[:500]
@@ -168,6 +184,10 @@ class HttpBrokerAdapter(BrokerAdapter):
             try:
                 data = response.json()
             except ValueError as exc:
+                if ambiguous_on_failure:
+                    raise OrderStatusUnknownError(
+                        "broker returned a malformed placement response"
+                    ) from exc
                 raise BrokerUnavailableError("malformed broker response") from exc
             return data
         raise BrokerUnavailableError("broker request failed")

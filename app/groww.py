@@ -127,7 +127,14 @@ class GrowwAdapter(HttpBrokerAdapter):
         }
         if order.price is not None:
             payload["price"] = float(order.price)
-        row = (await self.request("POST", "/v1/order/create", json=payload)).get("payload", {})
+        row = (
+            await self.request(
+                "POST",
+                "/v1/order/create",
+                json=payload,
+                ambiguous_on_failure=True,
+            )
+        ).get("payload", {})
         if not isinstance(row, dict) or not row.get("groww_order_id"):
             raise BrokerUnavailableError("Groww placement response is malformed")
         return BrokerOrderResult(

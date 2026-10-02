@@ -206,3 +206,41 @@ async def test_upstox_rejects_malformed_response() -> None:
         adapter = UpstoxAdapter(BrokerCredentials("key", "token"), client)
         with pytest.raises(BrokerUnavailableError):
             await adapter.get_holdings()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status_code", "content"),
+    [
+        (503, b'{"message":"upstream failure"}'),
+        (200, b"not-json"),
+    ],
+)
+async def test_upstox_ambiguous_placement_response_is_unknown(
+    status_code: int, content: bytes
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status_code, content=content)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = UpstoxAdapter(BrokerCredentials("key", "token"), client)
+        with pytest.raises(OrderStatusUnknownError):
+            await adapter.place_order(
+                BrokerOrderRequest(
+                    instrument=ResolvedInstrument(
+                        "RELIANCE",
+                        "NSE",
+                        broker_symbol="RELIANCE",
+                        broker_token="NSE_EQ|INE002A01018",
+                    ),
+                    side=Side.BUY,
+                    quantity=1,
+                    client_order_id="ambiguous-placement",
+                )
+            )
+
+    assert calls == 1

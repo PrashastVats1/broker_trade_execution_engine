@@ -139,7 +139,12 @@ class ZerodhaAdapter(HttpBrokerAdapter):
             payload["market_protection"] = -1
         if order.price is not None:
             payload["price"] = str(order.price)
-        data = await self.request("POST", "/orders/regular", data=payload)
+        data = await self.request(
+            "POST",
+            "/orders/regular",
+            data=payload,
+            ambiguous_on_failure=True,
+        )
         result = data.get("data", {})
         if not isinstance(result, dict) or not result.get("order_id"):
             raise BrokerUnavailableError("Zerodha placement response is malformed")

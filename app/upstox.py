@@ -142,6 +142,7 @@ class UpstoxAdapter(HttpBrokerAdapter):
             "/v3/order/place",
             base_url=self.order_base_url,
             json=payload,
+            ambiguous_on_failure=True,
         )
         order_ids = data.get("data", {}).get("order_ids", [])
         if not isinstance(order_ids, list) or len(order_ids) != 1:

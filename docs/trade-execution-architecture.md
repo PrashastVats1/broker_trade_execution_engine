@@ -43,9 +43,10 @@ multiple matches fail before submission.
 ## Idempotency and transaction boundaries
 
 `POST /api/v1/executions` requires `Idempotency-Key`. The service hashes the
-canonical business payload and inserts the execution/orders under a unique
-database constraint. Reusing the key with the same hash returns the existing
-execution. Reusing it with a different hash returns HTTP 409.
+Pydantic JSON payload, excluding `confirm_live`, and inserts the
+execution/orders under a unique database constraint. Reusing the key with the
+same hash returns the existing execution. Reusing it with a different hash
+returns HTTP 409.
 
 Database transactions are short:
 
@@ -61,6 +62,11 @@ broker-side uncertainty.
 
 ## State and ambiguous submission
 
+The diagram shows the principal execution path. `ORDER_STATUS_TRANSITIONS` in
+`app/domain.py` is the complete enforced table. It also allows explicit
+authentication, rate-limit, and delivery-authorization failures to move from
+`SUBMITTING` to `FAILED`. It does not allow a terminal state to regress.
+
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING
@@ -74,16 +80,31 @@ stateDiagram-v2
     OPEN --> CANCELLED
     SUBMITTING --> UNKNOWN: ResponseLost
     SUBMITTED --> UNKNOWN: StatusUnavailable
+    PENDING --> SKIPPED: EarlierOrderUnknown
     UNKNOWN --> EXECUTED: Reconciled
     UNKNOWN --> REJECTED: Reconciled
 ```
 
-A timeout during a non-idempotent place-order call is never retried. The order
-becomes `UNKNOWN`; the execution becomes `RECONCILIATION_REQUIRED`. A later
-explicit reconciliation queries the broker order ID or client correlation tag.
-If that lookup is still ambiguous, human investigation is required. Safe
-idempotent reads may use bounded retry; rejected orders and validation failures
-are not retried.
+A timeout during a non-idempotent place-order call is never retried. The same
+ambiguity rule applies to transport failures, HTTP 5xx responses, malformed
+placement responses, and failure to persist a broker acknowledgement: none
+proves that the broker rejected the order. The order becomes `UNKNOWN` where a
+fallback write is possible; otherwise its already-durable `SUBMITTING` state
+continues to represent the uncertainty. The execution becomes
+`RECONCILIATION_REQUIRED`.
+
+The engine stops submitting the execution's remaining orders after the first
+ambiguous outcome and marks them `SKIPPED`. This avoids creating further
+dependent financial side effects while the account position is uncertain.
+
+A later explicit reconciliation investigates both `UNKNOWN` and `SUBMITTING`
+orders. DhanHQ, Groww, Upstox, and Zerodha expose the client correlation/tag
+lookup used when no broker order ID was saved. The currently verified Angel One
+status contract requires its broker order ID; an interrupted Angel One
+placement without that ID therefore remains unresolved and requires manual
+broker investigation. Reconciliation never resubmits an order. Safe idempotent
+reads may use bounded retry; rejected orders and validation failures are not
+retried.
 
 Execution aggregation is:
 
@@ -91,8 +112,9 @@ Execution aggregation is:
 - `PARTIAL_SUCCESS`: at least one executed and remaining orders reached explicit
   terminal failures.
 - `FAILED`: no order executed and all outcomes are explicit failures.
-- `RECONCILIATION_REQUIRED`: any order is submitted/open/part-filled/unknown
-  after the bounded observation window.
+- `RECONCILIATION_REQUIRED`: any order is
+  submitting/submitted/open/part-filled/unknown after the bounded observation
+  window.
 
 Notification is dispatched after the execution outcome is persisted. A failed
 webhook changes only `notification_status`, never a successful trade outcome.
@@ -103,6 +125,9 @@ The repository contains no broker credentials. Environment values are wrapped
 as secrets and authorization headers are never logged. OAuth-style flows use a
 single-use state value. Live calls require both `ALLOW_LIVE_TRADING=true` and
 `confirm_live=true`; the default Docker environment cannot place a live order.
+Those controls prevent accidental execution; they are not user authentication
+or authorization. The default local path uses MockBroker and no real
+credentials.
 
 This is an assignment demonstration, not production trading infrastructure.
 Production requires authenticated end users, authorization policy, KMS-backed

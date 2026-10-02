@@ -23,7 +23,6 @@ class MockBrokerState:
     orders: dict[str, BrokerOrderResult] = field(default_factory=dict)
     reject_symbols: set[str] = field(default_factory=set)
     timeout_symbols: set[str] = field(default_factory=set)
-    notification_fail: bool = False
 
 
 class MockBrokerAdapter(BrokerAdapter):

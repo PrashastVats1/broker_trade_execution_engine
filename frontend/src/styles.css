@@ -1,0 +1,150 @@
+body {
+  margin: 0;
+  background: #f7f7f7;
+  color: #1c1c1c;
+  font: 16px/1.45 system-ui, sans-serif;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+h1,
+h2 {
+  margin: 0 0 12px;
+  font-weight: 650;
+}
+
+h1 {
+  font-size: 1.4rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+}
+
+p,
+.note {
+  margin: 8px 0;
+}
+
+section {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #b5b5b5;
+}
+
+input[type="file"] {
+  width: auto;
+  border: 0;
+  padding: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 6px 4px;
+  border-bottom: 1px solid #e6e6e6;
+  text-align: left;
+  vertical-align: top;
+}
+
+.row-actions,
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+button {
+  padding: 8px 12px;
+  border: 1px solid #222;
+  background: #fff;
+}
+
+button.primary {
+  background: #222;
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+.error {
+  color: #8d1d1d;
+}
+
+.SUCCESS,
+.EXECUTED {
+  color: #0b6b2a;
+}
+
+.PARTIAL_SUCCESS,
+.UNKNOWN,
+.RECONCILIATION_REQUIRED,
+.SUBMITTING,
+.SUBMITTED,
+.OPEN,
+.PARTIALLY_FILLED {
+  color: #8a4b08;
+}
+
+.FAILED,
+.REJECTED,
+.CANCELLED {
+  color: #8d1d1d;
+}
+
+.SKIPPED,
+.PENDING,
+.RUNNING {
+  color: #444;
+}
+
+.order {
+  border-top: 1px solid #e6e6e6;
+  padding: 10px 0;
+}
+
+.order:first-of-type {
+  border-top: 0;
+}

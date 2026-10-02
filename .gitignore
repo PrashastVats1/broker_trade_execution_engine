@@ -1,15 +1,54 @@
-.env
-.venv/
+# Python
 __pycache__/
 *.py[cod]
-*.db
-.coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-htmlcov/
-dist/
 build/
 *.egg-info/
-.idea/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Coverage / test artifacts
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE / editor
 .vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend / Node
+node_modules/
+dist/
+frontend/dist/
+frontend/.vite/
+
+# AI coding assistant local state
+.cursor/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

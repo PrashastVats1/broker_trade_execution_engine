@@ -77,13 +77,26 @@ Detailed design:
 ## Execution safety
 
 `POST /api/v1/executions` requires `Idempotency-Key`. The database stores a
-canonical request hash under a unique constraint. Same key/same payload returns
-the existing execution; same key/different payload returns HTTP 409.
+SHA-256 hash of the Pydantic JSON payload, excluding `confirm_live`, under a
+unique constraint. Same key/same payload returns the existing execution; same
+key/different payload returns HTTP 409.
 
 The service persists `SUBMITTING` before calling a broker and does not hold a
-database transaction open over the network. Safe reads can retry with bounded
-backoff. Order submission is never blindly retried. A submission timeout becomes
-`UNKNOWN`; reconciliation uses the broker order ID or correlation field.
+database transaction open over the network. Current holdings and status reads
+opt into at most three attempts, with jitter. Numeric `Retry-After` is honored
+only on a 429 from those reads, and only up to five seconds. Order placement
+uses one attempt and is never blindly retried. A submission timeout becomes
+`UNKNOWN`; reconciliation uses the broker order ID or, where the verified
+contract provides it, the correlation field.
+Transport failures, 5xx responses, malformed placement responses, and failure
+to persist a broker acknowledgement are also treated as ambiguous rather than
+as proof that an order failed.
+
+Once any order becomes `UNKNOWN`, the engine stops that execution. Remaining
+`PENDING` orders become `SKIPPED` and are never submitted. The execution remains
+`RECONCILIATION_REQUIRED`. This is intentional: after losing certainty about an
+external financial side effect, the service must not create additional
+dependent financial side effects.
 
 This is not an exactly-once guarantee. Network partitions and external broker
 APIs make exactly-once execution impossible without broker-provided semantics
@@ -175,7 +188,54 @@ docker compose down
 ```
 
 Compose starts PostgreSQL, waits for health, applies Alembic migrations, and
-starts the API on port 8000. Live trading remains disabled.
+starts the API on port 8000. The bonus frontend is served at
+<http://localhost:8080>. Live trading remains disabled.
+
+## Bonus frontend
+
+The optional React/Vite interface exercises the existing execution API. It does
+not place live trades or certify a real broker.
+
+Only Mock Broker is usable for execution right now. **Execute portfolio** stays
+disabled until Mock is selected and connected. Zerodha, DhanHQ, Angel One,
+Groww, and Upstox are contract-tested adapters; choosing one in the UI does not
+configure a live session, so Connect stays "Not configured" and execution does
+not run.
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:8080>. For local frontend development instead:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+That development server uses `http://localhost:5173` and calls
+`VITE_API_BASE_URL`, which defaults to `http://localhost:8000`. The API allows
+those two local origins only.
+
+Demo flow:
+
+1. Start Compose.
+2. Open the frontend.
+3. Select Mock Broker. Execution only works with Mock.
+4. Upload `frontend/sample-portfolio.csv` and review the rows.
+5. Click Connect broker. Mock requires no credentials. Wait until the status says Connected.
+6. Click Execute portfolio.
+7. Read each order result.
+
+`UNKNOWN` means the broker outcome is ambiguous. The screen says no automatic
+resubmission occurred, and later orders marked `SKIPPED` were not sent.
+Reconcile calls the backend reconciliation endpoint; it does not execute the
+portfolio again.
+
+The five real adapters remain contract-tested, not live-certified. Live trading
+stays disabled unless the backend operator separately enables it. `confirm_live`
+is not an authentication control and is not exposed by this interface.
 
 ## Configuration and real brokers
 
@@ -186,7 +246,10 @@ committed or logged.
 To make a live call, the operator must intentionally set
 `ALLOW_LIVE_TRADING=true`, configure one broker, satisfy its static-IP/app/DDPI
 requirements, and send `"confirm_live": true`. These switches prevent accidental
-live execution; they do not make the project production-ready.
+live execution; they do not authenticate or authorize a user and do not make
+the project production-ready. Production live execution requires authenticated,
+authorized users and account-scoped policy. The normal local/demo path is the
+MockBroker and requires no real broker credentials.
 
 OAuth/consent tokens are held only in process memory in this assignment. A
 restart loses callback-generated tokens. Production requires authenticated user
@@ -198,10 +261,13 @@ The suite includes:
 
 - first-time, multiple buys, multiple sells, and mixed rebalances;
 - quantity/symbol validation and exact instrument resolution;
-- partial rejection and notification failure;
+- partial rejection, including a first-time portfolio, and notification failure;
 - request idempotency and payload conflict;
-- timeout after possible acceptance and failed status reconciliation;
-- auth, rate-limit, 5xx, and malformed-response normalization;
+- timeout after possible acceptance, failed status lookup, and an
+  executed/unknown/skipped three-order sequence;
+- Upstox HTTP 503 and malformed placement responses classified as unknown;
+- authentication, rate-limit, and delivery-authorization responses treated as
+  explicit outcomes rather than ambiguous submissions;
 - all five real adapter request/response mappings;
 - API/OpenAPI and end-to-end mock behavior.
 
@@ -225,8 +291,12 @@ needed to demonstrate the bounded synchronous assignment flow.
 ## Known limitations and production hardening
 
 - Real adapters have not placed live orders.
-- In-process execution is not crash-proof; reconciliation preserves recoverable
-  state, but production should use a durable worker/outbox.
+- In-process execution is not crash-proof. Reconciliation can investigate
+  `SUBMITTING`, `UNKNOWN`, and acknowledged open orders. It does not resume
+  `PENDING` orders left by a crash before submission. Angel One cannot resolve
+  a `SUBMITTING` order without its broker order ID. Replaying the same
+  idempotency key returns that execution and does not submit it again.
+  Production should use a durable worker/outbox.
 - Broker postbacks/WebSockets are not consumed.
 - Tokens are not persisted in an encrypted credential vault.
 - End-user authentication, authorization, tenancy, and audit retention are not
@@ -242,6 +312,7 @@ needed to demonstrate the bounded synchronous assignment flow.
 
 ```text
 app/                 domain, orchestration, persistence, API, adapters
+frontend/            bonus React execution interface
 tests/               core, API, and broker contract tests
 docs/                assignment sources, research, and architecture
 migrations/          Alembic schema history

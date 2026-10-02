@@ -150,7 +150,12 @@ class DhanAdapter(HttpBrokerAdapter):
             "triggerPrice": 0,
             "afterMarketOrder": False,
         }
-        row = await self.request("POST", "/orders", json=payload)
+        row = await self.request(
+            "POST",
+            "/orders",
+            json=payload,
+            ambiguous_on_failure=True,
+        )
         if not row.get("orderId"):
             raise BrokerUnavailableError("Dhan placement response is malformed")
         return BrokerOrderResult(

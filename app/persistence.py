@@ -4,7 +4,19 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid, select
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    Uuid,
+    select,
+    text,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -25,6 +37,7 @@ from app.domain import (
     Workflow,
     new_id,
     utc_now,
+    validate_order_transition,
 )
 
 
@@ -53,6 +66,13 @@ class ExecutionRecord(Base):
 
 class OrderRecord(Base):
     __tablename__ = "orders"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_orders_quantity_positive"),
+        CheckConstraint(
+            "filled_quantity >= 0 AND filled_quantity <= quantity",
+            name="ck_orders_filled_quantity_bounds",
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     execution_id: Mapped[UUID] = mapped_column(
@@ -89,6 +109,10 @@ class ExecutionRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self.session_factory = session_factory
 
+    async def ping(self) -> None:
+        async with self.session_factory() as session:
+            await session.execute(text("SELECT 1"))
+
     async def create_or_get(
         self,
         broker: BrokerName,
@@ -97,45 +121,65 @@ class ExecutionRepository:
         request_hash: str,
         orders: list[OrderInstruction],
     ) -> tuple[UUID, bool]:
-        async with self.session_factory.begin() as session:
+        try:
+            async with self.session_factory.begin() as session:
+                execution = ExecutionRecord(
+                    broker=broker.value,
+                    workflow=workflow.value,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                )
+                session.add(execution)
+                await session.flush()
+                for sequence, order in enumerate(orders):
+                    session.add(
+                        OrderRecord(
+                            execution_id=execution.id,
+                            sequence=sequence,
+                            client_order_id=f"{execution.id.hex[:12]}-{sequence:03d}",
+                            symbol=order.symbol,
+                            exchange=order.exchange,
+                            segment=order.segment,
+                            isin=order.isin,
+                            side=order.side.value,
+                            quantity=order.quantity,
+                            product=order.product,
+                            order_type=order.order_type,
+                            validity=order.validity,
+                            price=order.price,
+                        )
+                    )
+                return execution.id, True
+        except IntegrityError:
+            # The unique constraint is the final authority when concurrent requests
+            # both observe a missing key. The loser reloads the committed winner.
+            existing_id = await self.find_idempotent(idempotency_key, request_hash)
+            if existing_id is None:
+                raise
+            return existing_id, False
+
+    async def find_idempotent(
+        self, idempotency_key: str, request_hash: str
+    ) -> UUID | None:
+        async with self.session_factory() as session:
             existing = await session.scalar(
                 select(ExecutionRecord).where(
                     ExecutionRecord.idempotency_key == idempotency_key
                 )
             )
-            if existing:
-                if existing.request_hash != request_hash:
-                    raise IdempotencyConflictError(
-                        "Idempotency-Key was already used with a different payload"
-                    )
-                return existing.id, False
-            execution = ExecutionRecord(
-                broker=broker.value,
-                workflow=workflow.value,
-                idempotency_key=idempotency_key,
-                request_hash=request_hash,
+            if existing is None:
+                return None
+            self._validate_request_hash(existing, request_hash)
+            return existing.id
+
+    @staticmethod
+    def _validate_request_hash(
+        existing: ExecutionRecord, request_hash: str
+    ) -> None:
+        if existing.request_hash != request_hash:
+            raise IdempotencyConflictError(
+                "Idempotency-Key was already used with a different payload"
             )
-            session.add(execution)
-            await session.flush()
-            for sequence, order in enumerate(orders):
-                session.add(
-                    OrderRecord(
-                        execution_id=execution.id,
-                        sequence=sequence,
-                        client_order_id=f"{execution.id.hex[:12]}-{sequence:03d}",
-                        symbol=order.symbol,
-                        exchange=order.exchange,
-                        segment=order.segment,
-                        isin=order.isin,
-                        side=order.side.value,
-                        quantity=order.quantity,
-                        product=order.product,
-                        order_type=order.order_type,
-                        validity=order.validity,
-                        price=order.price,
-                    )
-                )
-            return execution.id, True
 
     async def get_record(self, execution_id: UUID) -> ExecutionRecord | None:
         async with self.session_factory() as session:
@@ -183,9 +227,19 @@ class ExecutionRepository:
         error_message: str | None = None,
     ) -> None:
         async with self.session_factory.begin() as session:
-            record = await session.get(OrderRecord, order_id)
+            record = await session.scalar(
+                select(OrderRecord).where(OrderRecord.id == order_id).with_for_update()
+            )
             if record is None:
                 raise LookupError(order_id)
+            validate_order_transition(OrderStatus(record.status), status)
+            next_filled_quantity = (
+                record.filled_quantity if filled_quantity is None else filled_quantity
+            )
+            if not 0 <= next_filled_quantity <= record.quantity:
+                raise ValueError(
+                    "filled_quantity must be between zero and requested quantity"
+                )
             record.status = status.value
             record.updated_at = utc_now()
             if broker_symbol is not None:

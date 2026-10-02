@@ -23,7 +23,7 @@ Verified on **2 October 2026**.
 - [x] Ambiguous submission is not retried and becomes
   `RECONCILIATION_REQUIRED`.
 - [x] Explicit reconciliation endpoint.
-- [x] Bounded retry only for safe reads.
+- [x] Order placement is not retried. Current safe reads opt into bounded retry.
 - [x] Partial execution summary.
 - [x] Console and optional webhook notification abstraction.
 - [x] Notification failure does not alter trade outcome.
@@ -61,21 +61,32 @@ Verified on **2 October 2026**.
 
 ## Actual verification
 
-Commands run successfully:
+Commands run successfully on 2 October 2026:
 
 ```text
-.venv/bin/pytest --cov=app --cov-report=term-missing
-39 passed; total application coverage 84%
+.venv/bin/pytest
+58 passed
 
-.venv/bin/ruff check app tests
+.venv/bin/ruff check app tests migrations
 All checks passed
 
 .venv/bin/mypy app
 Success: no issues found in 14 source files
+```
 
+The automated suite uses SQLite. It does not by itself prove PostgreSQL
+constraints or concurrency. The same-day Compose rerun rebuilt the API,
+reported both containers healthy, and returned `/health`, `/ready`, and a
+mock execution `201`. Alembic connected to PostgreSQL and found the existing
+volume already at head, so it did not repeat the `0001 → 0002` upgrade log.
+
+Earlier migration and container results:
+
+```text
 DATABASE_URL=sqlite+aiosqlite:////tmp/kalpi-migration-test.db \
   .venv/bin/alembic upgrade head
-Migration 0001 applied successfully
+Migration 0001 was applied in that earlier run. Migration 0002 was later
+applied by the Compose API container.
 
 docker build -t kalpi-trade-engine:test .
 Image built successfully
