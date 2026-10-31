@@ -4,6 +4,8 @@ import type {
   BrokerSummary,
   ExecutionRequestBody,
   ExecutionView,
+  MockScenarioName,
+  MockScenarioSelection,
 } from "./types";
 
 export function apiBaseUrl(): string {
@@ -62,6 +64,18 @@ export function listBrokers(): Promise<BrokerSummary[]> {
 
 export function getBrokerStatus(broker: string): Promise<BrokerStatus> {
   return request<BrokerStatus>(`/api/v1/brokers/${broker}/status`);
+}
+
+export function getMockScenario(): Promise<MockScenarioSelection> {
+  return request<MockScenarioSelection>("/api/v1/brokers/mock/scenario");
+}
+
+export function setMockScenario(scenario: MockScenarioName): Promise<MockScenarioSelection> {
+  return request<MockScenarioSelection>("/api/v1/brokers/mock/scenario", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scenario }),
+  });
 }
 
 export function startBrokerAuth(broker: string): Promise<AuthStart> {

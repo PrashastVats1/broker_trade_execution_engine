@@ -3,24 +3,28 @@ import {
   createExecution,
   getBrokerStatus,
   getExecution,
+  getMockScenario,
   listBrokers,
   reconcileExecution,
+  setMockScenario,
   startBrokerAuth,
 } from "./api";
 import { BrokerSelector } from "./components/BrokerSelector";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { ExecutionPanel } from "./components/ExecutionPanel";
+import { MockScenarioSelector } from "./components/MockScenarioSelector";
 import { OrderResults } from "./components/OrderResults";
 import { PortfolioEditor } from "./components/PortfolioEditor";
-import { buildExecutionRequest, emptyRow, parsePortfolioCsv, validatePortfolio } from "./portfolio";
+import { buildExecutionRequest, DEMO_PORTFOLIO, parsePortfolioCsv, validatePortfolio } from "./portfolio";
 import type { PortfolioRow } from "./portfolio";
 import { isTerminalExecution } from "./statusText";
-import type { ExecutionView } from "./types";
+import type { ExecutionView, MockScenarioName } from "./types";
 
 export function App() {
   const [brokers, setBrokers] = useState<string[]>([]);
   const [broker, setBroker] = useState("mock");
-  const [rows, setRows] = useState<PortfolioRow[]>([emptyRow()]);
+  const [scenario, setScenario] = useState<MockScenarioName>("NORMAL");
+  const [rows, setRows] = useState<PortfolioRow[]>(DEMO_PORTFOLIO);
   const [connected, setConnected] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [connectionMessage, setConnectionMessage] = useState(
@@ -44,6 +48,17 @@ export function App() {
         setError(reason instanceof Error ? reason.message : "The broker list could not be loaded.");
       });
   }, []);
+
+  useEffect(() => {
+    if (broker !== "mock") {
+      return;
+    }
+    void getMockScenario()
+      .then((selection) => setScenario(selection.scenario))
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "The mock scenario could not be loaded.");
+      });
+  }, [broker]);
 
   const executionId = execution?.id;
   const executionStatus = execution?.status;
@@ -128,6 +143,19 @@ export function App() {
     }
   }
 
+  async function changeScenario(next: MockScenarioName) {
+    const previous = scenario;
+    setScenario(next);
+    setError("");
+    try {
+      const saved = await setMockScenario(next);
+      setScenario(saved.scenario);
+    } catch (reason: unknown) {
+      setScenario(previous);
+      setError(reason instanceof Error ? reason.message : "The mock scenario could not be saved.");
+    }
+  }
+
   async function upload(file: File) {
     setError("");
     try {
@@ -193,6 +221,13 @@ export function App() {
         disabled={activity !== null}
         onChange={selectBroker}
       />
+      {broker === "mock" ? (
+        <MockScenarioSelector
+          value={scenario}
+          disabled={activity !== null}
+          onChange={(next) => void changeScenario(next)}
+        />
+      ) : null}
       <ConnectionStatus
         connected={connected}
         configured={configured}

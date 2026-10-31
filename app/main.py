@@ -31,7 +31,7 @@ from app.domain import (
     TradeEngineError,
 )
 from app.groww import GrowwAdapter
-from app.mock_broker import MockBrokerAdapter, MockBrokerState
+from app.mock_broker import MockBrokerAdapter, MockBrokerState, MockScenario, parse_mock_scenario
 from app.notifications import (
     CompositeNotifier,
     ConsoleNotifier,
@@ -44,6 +44,10 @@ from app.upstox import UpstoxAdapter
 from app.zerodha import ZerodhaAdapter
 
 logger = logging.getLogger("kalpi")
+
+
+class MockScenarioUpdate(BaseModel):
+    scenario: MockScenario
 
 
 class BrokerAuthComplete(BaseModel):
@@ -67,6 +71,8 @@ def create_app(
     settings = settings or get_settings()
     engine, sessions = create_engine_and_session(settings.database_url)
     registry = BrokerRegistry()
+    if mock_state is None:
+        mock_state = MockBrokerState(scenario=parse_mock_scenario(settings.mock_broker_scenario))
     mock_adapter = MockBrokerAdapter(mock_state)
     registry.register(BrokerName.MOCK, lambda: mock_adapter)
     real_adapters: list[BrokerAdapter] = [
@@ -229,6 +235,16 @@ def create_app(
             }
             for name in names
         ]
+
+    @app.get("/api/v1/brokers/mock/scenario", tags=["brokers"])
+    async def get_mock_scenario() -> dict[str, str]:
+        return {"scenario": mock_adapter.state.scenario.value}
+
+    @app.post("/api/v1/brokers/mock/scenario", tags=["brokers"])
+    async def set_mock_scenario(payload: MockScenarioUpdate) -> dict[str, str]:
+        mock_adapter.state.scenario = payload.scenario
+        logger.info("mock broker scenario set to %s", payload.scenario.value)
+        return {"scenario": mock_adapter.state.scenario.value}
 
     @app.get("/api/v1/brokers/{broker}/status", tags=["brokers"])
     async def broker_status(broker: BrokerName) -> dict[str, str | bool]:

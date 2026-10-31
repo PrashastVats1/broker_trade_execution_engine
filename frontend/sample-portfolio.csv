@@ -1,5 +1,9 @@
-# Demo data only. This is not a live portfolio.
+# DEMO DATA. Synthetic NSE holdings for the Mock Broker walkthrough.
+# Not a real portfolio and not an investment recommendation.
 symbol,exchange,quantity
 INFY,NSE,10
 TCS,NSE,5
 HDFCBANK,NSE,8
+RELIANCE,NSE,4
+ITC,NSE,12
+SBIN,NSE,10

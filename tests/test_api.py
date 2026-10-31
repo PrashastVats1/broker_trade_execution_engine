@@ -141,6 +141,57 @@ async def test_api_idempotency_payload_conflict_returns_409(tmp_path) -> None:  
 
 
 @pytest.mark.asyncio
+async def test_mock_scenario_timeout_reconciles_without_another_order(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path / 'scenario.db'}",
+        allow_live_trading=False,
+    )
+    state = MockBrokerState()
+    app = create_app(settings, mock_state=state)
+    payload = {
+        "broker": "mock",
+        "workflow": "REBALANCE",
+        "orders": [{"symbol": "INFY", "side": "BUY", "quantity": 1}],
+    }
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            initial = await client.get("/api/v1/brokers/mock/scenario")
+            selected = await client.post(
+                "/api/v1/brokers/mock/scenario",
+                json={"scenario": "EXECUTED_BUT_RESPONSE_TIMEOUT"},
+            )
+            created = await client.post(
+                "/api/v1/executions",
+                headers={"Idempotency-Key": "scenario-timeout-1"},
+                json=payload,
+            )
+            replay = await client.post(
+                "/api/v1/executions",
+                headers={"Idempotency-Key": "scenario-timeout-1"},
+                json=payload,
+            )
+            execution_id = created.json()["id"]
+            reconciled = await client.post(f"/api/v1/executions/{execution_id}/reconcile")
+            repeated = await client.post(f"/api/v1/executions/{execution_id}/reconcile")
+
+    assert settings.allow_live_trading is False
+    assert initial.json() == {"scenario": "NORMAL"}
+    assert selected.json() == {"scenario": "EXECUTED_BUT_RESPONSE_TIMEOUT"}
+    assert created.status_code == 201
+    assert created.json()["status"] == "RECONCILIATION_REQUIRED"
+    assert created.json()["orders"][0]["status"] == "UNKNOWN"
+    assert replay.json()["id"] == execution_id
+    assert reconciled.json()["status"] == "SUCCESS"
+    assert reconciled.json()["orders"][0]["status"] == "EXECUTED"
+    assert reconciled.json()["orders"][0]["broker_order_id"] == "mock-1"
+    assert repeated.json()["orders"][0]["broker_order_id"] == "mock-1"
+    assert state.recorded_executions == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("error", "expected_status"),
     [

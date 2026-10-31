@@ -223,10 +223,11 @@ Demo flow:
 1. Start Compose.
 2. Open the frontend.
 3. Select Mock Broker. Execution only works with Mock.
-4. Upload `frontend/sample-portfolio.csv` and review the rows.
+4. Review the six synthetic DEMO DATA rows already shown, or upload `frontend/sample-portfolio.csv`. The file uses `symbol,exchange,quantity` and contains INFY 10, TCS 5, HDFCBANK 8, RELIANCE 4, ITC 12, and SBIN 10. ISIN is optional and left blank.
 5. Click Connect broker. Mock requires no credentials. Wait until the status says Connected.
-6. Click Execute portfolio.
-7. Read each order result.
+6. Leave the Mock Broker scenario on Normal Execution, or choose Executed but Response Timed Out. That scenario fills the first order, drops the response, and leaves the order `UNKNOWN`. Later orders are not submitted. Reconcile looks up the original fill and does not place it again.
+7. Click Execute portfolio.
+8. Read each order result.
 
 `UNKNOWN` means the broker outcome is ambiguous. The screen says no automatic
 resubmission occurred, and later orders marked `SKIPPED` were not sent.

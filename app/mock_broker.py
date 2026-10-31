@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
+from enum import StrEnum
 
 from app.brokers import BrokerAdapter
 from app.domain import (
@@ -16,6 +18,20 @@ from app.domain import (
     ResolvedInstrument,
 )
 
+logger = logging.getLogger("kalpi.mock")
+
+
+class MockScenario(StrEnum):
+    NORMAL = "NORMAL"
+    EXECUTED_BUT_RESPONSE_TIMEOUT = "EXECUTED_BUT_RESPONSE_TIMEOUT"
+
+
+def parse_mock_scenario(value: str) -> MockScenario:
+    try:
+        return MockScenario(value)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported mock broker scenario: {value}") from exc
+
 
 @dataclass
 class MockBrokerState:
@@ -23,6 +39,8 @@ class MockBrokerState:
     orders: dict[str, BrokerOrderResult] = field(default_factory=dict)
     reject_symbols: set[str] = field(default_factory=set)
     timeout_symbols: set[str] = field(default_factory=set)
+    scenario: MockScenario = MockScenario.NORMAL
+    recorded_executions: int = 0
 
 
 class MockBrokerAdapter(BrokerAdapter):
@@ -51,14 +69,31 @@ class MockBrokerAdapter(BrokerAdapter):
         if order.instrument.symbol in self.state.reject_symbols:
             raise OrderRejectedError("mock rejection: insufficient funds")
         broker_id = f"mock-{len(self.state.orders) + 1}"
+        response_lost = self.state.scenario == MockScenario.EXECUTED_BUT_RESPONSE_TIMEOUT
         result = BrokerOrderResult(
             OrderStatus.EXECUTED,
             broker_id,
             order.quantity,
             Decimal("100.00"),
-            "mock fill",
+            (
+                "Executed at the mock broker before the response timed out"
+                if response_lost
+                else "mock fill"
+            ),
         )
         self.state.orders[order.client_order_id] = result
+        self.state.recorded_executions += 1
+        if response_lost:
+            logger.info(
+                "mock broker executed client_order_id=%s broker_order_id=%s "
+                "then dropped the response",
+                order.client_order_id,
+                broker_id,
+            )
+            raise OrderStatusUnknownError(
+                "Mock broker executed the order but the response timed out "
+                "before reaching the application"
+            )
         return result
 
     async def get_order_status(

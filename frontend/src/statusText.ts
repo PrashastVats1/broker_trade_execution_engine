@@ -3,7 +3,7 @@ export function executionStatusText(status: string): string {
     case "SUCCESS":
       return "Execution completed.";
     case "PARTIAL_SUCCESS":
-      return "Some orders succeeded and others failed.";
+      return "Some orders were executed. Others were not completed.";
     case "RECONCILIATION_REQUIRED":
       return "A broker outcome is ambiguous and requires reconciliation. No automatic resubmission was performed.";
     case "FAILED":

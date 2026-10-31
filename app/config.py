@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     order_poll_interval_seconds: float = 0.05
     broker_redirect_base_url: str = "http://localhost:8000/api/v1/brokers"
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
+    mock_broker_scenario: str = "NORMAL"
 
     zerodha_api_key: str | None = None
     zerodha_api_secret: SecretStr | None = None

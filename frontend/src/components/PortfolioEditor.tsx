@@ -21,37 +21,36 @@ export function PortfolioEditor({
   return (
     <section>
       <h2>Target portfolio</h2>
-      <p className="note">Demo positions only. The backend creates one BUY for each row.</p>
+      <p className="note">
+        DEMO DATA. The sample is six synthetic NSE holdings for the Mock Broker
+        walkthrough. They are not real positions and not investment recommendations.
+        The backend creates one BUY for each row. ISIN is optional, so the sample
+        leaves it blank and the request omits it.
+      </p>
       <table>
         <thead>
           <tr>
             <th>Symbol</th>
             <th>Exchange</th>
-            <th>ISIN</th>
+            <th>ISIN (optional)</th>
             <th>Quantity</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={index}>
+            <tr key={`${row.symbol}-${index}`}>
               <td>
-                <label className="sr-only" htmlFor={`symbol-${index}`}>
-                  Symbol {index + 1}
-                </label>
                 <input
-                  id={`symbol-${index}`}
+                  aria-label={`Symbol for row ${index + 1}`}
                   value={row.symbol}
                   disabled={disabled}
                   onChange={(event) => update(index, { symbol: event.target.value.toUpperCase() })}
                 />
               </td>
               <td>
-                <label className="sr-only" htmlFor={`exchange-${index}`}>
-                  Exchange {index + 1}
-                </label>
                 <select
-                  id={`exchange-${index}`}
+                  aria-label={`Exchange for row ${index + 1}`}
                   value={row.exchange}
                   disabled={disabled}
                   onChange={(event) => update(index, { exchange: event.target.value })}
@@ -61,22 +60,16 @@ export function PortfolioEditor({
                 </select>
               </td>
               <td>
-                <label className="sr-only" htmlFor={`isin-${index}`}>
-                  ISIN {index + 1}
-                </label>
                 <input
-                  id={`isin-${index}`}
+                  aria-label={`Optional ISIN for row ${index + 1}`}
                   value={row.isin}
                   disabled={disabled}
                   onChange={(event) => update(index, { isin: event.target.value.toUpperCase() })}
                 />
               </td>
               <td>
-                <label className="sr-only" htmlFor={`quantity-${index}`}>
-                  Quantity {index + 1}
-                </label>
                 <input
-                  id={`quantity-${index}`}
+                  aria-label={`Quantity for row ${index + 1}`}
                   inputMode="numeric"
                   value={row.quantity}
                   disabled={disabled}

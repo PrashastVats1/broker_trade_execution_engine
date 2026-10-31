@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildExecutionRequest, parsePortfolioCsv, validatePortfolio } from "./portfolio";
+import sampleCsv from "../sample-portfolio.csv?raw";
+import { buildExecutionRequest, DEMO_PORTFOLIO, parsePortfolioCsv, validatePortfolio } from "./portfolio";
 import { executionStatusText, orderStatusNote } from "./statusText";
 
 describe("portfolio validation", () => {
@@ -29,6 +30,28 @@ TCS,NSE,5`),
       { symbol: "INFY", exchange: "NSE", quantity: "10", isin: "" },
       { symbol: "TCS", exchange: "NSE", quantity: "5", isin: "" },
     ]);
+  });
+});
+
+describe("demo sample portfolio", () => {
+  it("loads six synthetic NSE holdings and requests one BUY each", () => {
+    const rows = parsePortfolioCsv(sampleCsv);
+
+    expect(rows).toEqual(DEMO_PORTFOLIO);
+    expect(validatePortfolio(rows)).toEqual([]);
+
+    const request = buildExecutionRequest("mock", rows);
+    expect(request.workflow).toBe("FIRST_TIME");
+    expect(request.portfolio).toEqual([
+      { symbol: "INFY", exchange: "NSE", quantity: 10 },
+      { symbol: "TCS", exchange: "NSE", quantity: 5 },
+      { symbol: "HDFCBANK", exchange: "NSE", quantity: 8 },
+      { symbol: "RELIANCE", exchange: "NSE", quantity: 4 },
+      { symbol: "ITC", exchange: "NSE", quantity: 12 },
+      { symbol: "SBIN", exchange: "NSE", quantity: 10 },
+    ]);
+    expect(request.portfolio.every((position) => !("isin" in position))).toBe(true);
+    expect(request).not.toHaveProperty("confirm_live");
   });
 });
 

@@ -15,6 +15,12 @@ export interface AuthStart {
   authorization_url: string;
 }
 
+export type MockScenarioName = "NORMAL" | "EXECUTED_BUT_RESPONSE_TIMEOUT";
+
+export interface MockScenarioSelection {
+  scenario: MockScenarioName;
+}
+
 export type ExecutionStatus =
   | "PENDING"
   | "RUNNING"

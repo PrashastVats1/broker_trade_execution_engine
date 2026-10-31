@@ -28,7 +28,7 @@ from app.domain import (
     Side,
     Workflow,
 )
-from app.mock_broker import MockBrokerAdapter, MockBrokerState
+from app.mock_broker import MockBrokerAdapter, MockBrokerState, MockScenario
 from app.notifications import NotificationService
 from app.persistence import (
     ExecutionRepository,
@@ -211,6 +211,70 @@ async def test_ambiguous_submission_is_unknown_and_not_retried(service_factory) 
     assert result.status == ExecutionStatus.RECONCILIATION_REQUIRED
     assert result.orders[0].status == OrderStatus.UNKNOWN
     assert state.orders == {}
+    assert state.recorded_executions == 0
+
+
+@pytest.mark.asyncio
+async def test_normal_mock_execution_records_one_fill(service_factory) -> None:  # type: ignore[no-untyped-def]
+    state = MockBrokerState(scenario=MockScenario.NORMAL)
+    service, _ = await service_factory(state)
+    request = ExecutionRequest(
+        broker=BrokerName.MOCK,
+        workflow=Workflow.REBALANCE,
+        orders=[OrderInstruction(symbol="INFY", quantity=1, side=Side.BUY)],
+    )
+
+    result = await service.execute(request, "normal-mock-1")
+
+    assert result.status == ExecutionStatus.SUCCESS
+    assert result.orders[0].status == OrderStatus.EXECUTED
+    assert result.orders[0].broker_order_id == "mock-1"
+    assert state.recorded_executions == 1
+
+
+@pytest.mark.asyncio
+async def test_executed_response_timeout_reconciles_original_fill(service_factory) -> None:  # type: ignore[no-untyped-def]
+    state = MockBrokerState(scenario=MockScenario.EXECUTED_BUT_RESPONSE_TIMEOUT)
+    service, _ = await service_factory(state)
+    request = ExecutionRequest(
+        broker=BrokerName.MOCK,
+        workflow=Workflow.REBALANCE,
+        orders=[
+            OrderInstruction(symbol="INFY", quantity=1, side=Side.BUY),
+            OrderInstruction(symbol="TCS", quantity=2, side=Side.BUY),
+        ],
+    )
+
+    result = await service.execute(request, "lost-response-1")
+
+    assert result.status == ExecutionStatus.RECONCILIATION_REQUIRED
+    assert result.orders[0].status == OrderStatus.UNKNOWN
+    assert result.orders[0].broker_order_id is None
+    assert "timed out" in (result.orders[0].error_message or "")
+    assert result.orders[1].status == OrderStatus.SKIPPED
+    assert state.recorded_executions == 1
+    stored = next(iter(state.orders.values()))
+    assert stored.status == OrderStatus.EXECUTED
+    assert stored.broker_order_id == "mock-1"
+    assert stored.filled_quantity == 1
+
+    replay = await service.execute(request, "lost-response-1")
+    assert replay.id == result.id
+    assert state.recorded_executions == 1
+
+    reconciled = await service.reconcile(result.id)
+    assert reconciled.orders[0].status == OrderStatus.EXECUTED
+    assert reconciled.orders[0].broker_order_id == "mock-1"
+    assert reconciled.orders[0].filled_quantity == 1
+    assert reconciled.orders[1].status == OrderStatus.SKIPPED
+    assert reconciled.status == ExecutionStatus.PARTIAL_SUCCESS
+    assert state.recorded_executions == 1
+
+    repeated = await service.reconcile(result.id)
+    assert repeated.orders[0].status == OrderStatus.EXECUTED
+    assert repeated.orders[0].broker_order_id == "mock-1"
+    assert state.recorded_executions == 1
+    assert len(state.orders) == 1
 
 
 @pytest.mark.asyncio

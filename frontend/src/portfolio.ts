@@ -14,6 +14,15 @@ export function emptyRow(): PortfolioRow {
   return { symbol: "", exchange: "NSE", quantity: "", isin: "" };
 }
 
+export const DEMO_PORTFOLIO: PortfolioRow[] = [
+  { symbol: "INFY", exchange: "NSE", quantity: "10", isin: "" },
+  { symbol: "TCS", exchange: "NSE", quantity: "5", isin: "" },
+  { symbol: "HDFCBANK", exchange: "NSE", quantity: "8", isin: "" },
+  { symbol: "RELIANCE", exchange: "NSE", quantity: "4", isin: "" },
+  { symbol: "ITC", exchange: "NSE", quantity: "12", isin: "" },
+  { symbol: "SBIN", exchange: "NSE", quantity: "10", isin: "" },
+];
+
 export function validatePortfolio(rows: PortfolioRow[]): string[] {
   if (rows.length === 0) {
     return ["Add at least one position."];
