@@ -15,7 +15,7 @@ import { ExecutionPanel } from "./components/ExecutionPanel";
 import { MockScenarioSelector } from "./components/MockScenarioSelector";
 import { OrderResults } from "./components/OrderResults";
 import { PortfolioEditor } from "./components/PortfolioEditor";
-import { buildExecutionRequest, DEMO_PORTFOLIO, parsePortfolioCsv, validatePortfolio } from "./portfolio";
+import { buildExecutionRequest, emptyRow, parsePortfolioCsv, validatePortfolio } from "./portfolio";
 import type { PortfolioRow } from "./portfolio";
 import { isTerminalExecution } from "./statusText";
 import type { ExecutionView, MockScenarioName } from "./types";
@@ -24,7 +24,7 @@ export function App() {
   const [brokers, setBrokers] = useState<string[]>([]);
   const [broker, setBroker] = useState("mock");
   const [scenario, setScenario] = useState<MockScenarioName>("NORMAL");
-  const [rows, setRows] = useState<PortfolioRow[]>(DEMO_PORTFOLIO);
+  const [rows, setRows] = useState<PortfolioRow[]>([emptyRow()]);
   const [connected, setConnected] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [connectionMessage, setConnectionMessage] = useState(

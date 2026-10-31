@@ -22,10 +22,10 @@ export function PortfolioEditor({
     <section>
       <h2>Target portfolio</h2>
       <p className="note">
-        DEMO DATA. The sample is six synthetic NSE holdings for the Mock Broker
-        walkthrough. They are not real positions and not investment recommendations.
-        The backend creates one BUY for each row. ISIN is optional, so the sample
-        leaves it blank and the request omits it.
+        Upload the sample CSV to load six synthetic NSE holdings. That file is
+        DEMO DATA for the Mock Broker walkthrough, not real positions and not
+        investment recommendations. The backend creates one BUY for each row.
+        ISIN is optional, so the sample leaves it blank and the request omits it.
       </p>
       <table>
         <thead>
